@@ -51,6 +51,13 @@ public class CropView extends ImageView {
 
 	private static final String TAG = "CropView";
 
+	/**
+	 * OverlayShape defines shape of dark overlay.
+	 *
+	 * RECT: used as default, handles by original Lyft library.
+	 * SQUARE: width and height are equals, the minimum of the 2 values is used.
+	 * CIRCLE: same behavior than SQUARE, except the overlay is a circle.
+	 */
 	public enum OverlayShape {
 		RECT, SQUARE, CIRCLE
 	}
@@ -62,12 +69,22 @@ public class CropView extends ImageView {
 	private Paint bitmapPaint   = new Paint();
 	private Paint clearPaint    = new Paint(Paint.ANTI_ALIAS_FLAG);
 
+	/**
+	 * Bitmap used for the picture.
+	 */
 	private Bitmap bitmap;
+	/**
+	 * Bitmap used for the dark overlay.
+	 */
 	private Bitmap overlayBitmap;
+
 	private Matrix transform = new Matrix();
 	private Extensions extensions;
 
 	private Canvas       overlayCanvas = new Canvas();
+	/**
+	 * Shape of dark overlay. Rectangle is the default value.
+	 */
 	private OverlayShape overlayShape  = OverlayShape.RECT;
 
 	public CropView(Context context) {
@@ -212,6 +229,18 @@ public class CropView extends ImageView {
 		invalidate();
 	}
 
+	/**
+	 * Sets the shape of the dark overlay.
+	 *
+	 * Possible values:
+	 * <ul>
+	 * <li>{@link OverlayShape#RECT}</li>
+	 * <li>{@link OverlayShape#SQUARE}</li>
+	 * <li>{@link OverlayShape#CIRCLE}</li>
+	 * </ul>
+	 *
+	 * @param overlayShape The new clear shape of the dark overlay.
+	 */
 	public void setOverlayShape(OverlayShape overlayShape) {
 		this.overlayShape = overlayShape;
 		invalidate();
@@ -297,13 +326,13 @@ public class CropView extends ImageView {
 
 		if (overlayShape == OverlayShape.SQUARE || overlayShape == OverlayShape.CIRCLE) {
 			/**
-			 * Square crop.
+			 * Square crop, even if it's a CIRCLE.
 			 */
 			viewportWidth = Math.min(touchManager.getViewportWidth(), touchManager.getViewportHeight());
 			viewportHeight = viewportWidth;
 		} else {
 			/**
-			 * Default crop.
+			 * Default crop (the shape is RECT).
 			 */
 			viewportWidth = touchManager.getViewportWidth();
 			viewportHeight = touchManager.getViewportHeight();
