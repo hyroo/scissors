@@ -64,8 +64,6 @@ repositories {
 compile 'com.github.ludriv:scissors:1.0.3.1'
 ```
 
-Snapshots of development version are available in [Sonatype's `snapshots` repository][snap].
-
 License
 -------
 
