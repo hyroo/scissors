@@ -1,3 +1,5 @@
+[![](https://jitpack.io/v/ludriv/scissors.svg)](https://jitpack.io/#ludriv/scissors)
+
 <img src="art/scissors.png" width="256" align="right" hspace="20" />
 
 Scissors
