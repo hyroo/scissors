@@ -21,19 +21,26 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Paint;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
+import android.os.Build;
 import android.support.annotation.DrawableRes;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.util.AttributeSet;
 import android.view.MotionEvent;
+import android.view.View;
 import android.widget.ImageView;
+
 import com.lyft.android.scissors.CropViewExtensions.CropRequest;
 import com.lyft.android.scissors.CropViewExtensions.LoadRequest;
+
 import java.io.File;
 import java.io.OutputStream;
 
@@ -42,280 +49,362 @@ import java.io.OutputStream;
  */
 public class CropView extends ImageView {
 
-    private static final int MAX_TOUCH_POINTS = 2;
-    private TouchManager touchManager;
+	private static final String TAG = "CropView";
 
-    private Paint viewportPaint = new Paint();
-    private Paint bitmapPaint = new Paint();
+	public enum OverlayShape {
+		RECT, SQUARE, CIRCLE
+	}
 
-    private Bitmap bitmap;
-    private Matrix transform = new Matrix();
-    private Extensions extensions;
+	private static final int MAX_TOUCH_POINTS = 2;
+	private TouchManager touchManager;
 
-    public CropView(Context context) {
-        super(context);
-        initCropView(context, null);
-    }
+	private Paint viewportPaint = new Paint();
+	private Paint bitmapPaint   = new Paint();
+	private Paint clearPaint    = new Paint(Paint.ANTI_ALIAS_FLAG);
 
-    public CropView(Context context, AttributeSet attrs) {
-        super(context, attrs);
+	private Bitmap bitmap;
+	private Bitmap overlayBitmap;
+	private Matrix transform = new Matrix();
+	private Extensions extensions;
 
-        initCropView(context, attrs);
-    }
+	private Canvas       overlayCanvas = new Canvas();
+	private OverlayShape overlayShape  = OverlayShape.RECT;
 
-    void initCropView(Context context, AttributeSet attrs) {
-        CropViewConfig config = CropViewConfig.from(context, attrs);
+	public CropView(Context context) {
+		super(context);
+		initCropView(context, null);
+		initOverlay();
+	}
 
-        touchManager = new TouchManager(MAX_TOUCH_POINTS, config);
+	public CropView(Context context, AttributeSet attrs) {
+		super(context, attrs);
 
-        bitmapPaint.setFilterBitmap(true);
-        viewportPaint.setColor(config.getViewportOverlayColor());
-    }
+		initCropView(context, attrs);
+		initOverlay();
+	}
 
-    @Override
-    protected void onDraw(Canvas canvas) {
-        super.onDraw(canvas);
+	void initCropView(Context context, AttributeSet attrs) {
+		CropViewConfig config = CropViewConfig.from(context, attrs);
 
-        if (bitmap == null) {
-            return;
-        }
+		touchManager = new TouchManager(MAX_TOUCH_POINTS, config);
 
-        drawBitmap(canvas);
-        drawOverlay(canvas);
-    }
+		bitmapPaint.setFilterBitmap(true);
+		viewportPaint.setColor(config.getViewportOverlayColor());
+	}
 
-    private void drawBitmap(Canvas canvas) {
-        transform.reset();
-        touchManager.applyPositioningAndScale(transform);
+	void initOverlay() {
+		clearPaint.setColor(Color.TRANSPARENT);
+		clearPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.CLEAR));
 
-        canvas.drawBitmap(bitmap, transform, bitmapPaint);
-    }
+		//In versions > 3.0 need to define layer Type
+		if (android.os.Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB) {
+			setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+		}
+	}
 
-    private void drawOverlay(Canvas canvas) {
-        final int viewportWidth = touchManager.getViewportWidth();
-        final int viewportHeight = touchManager.getViewportHeight();
-        final int left = (getWidth() - viewportWidth) / 2;
-        final int top = (getHeight() - viewportHeight) / 2;
+	@Override
+	protected void onDraw(Canvas canvas) {
+		super.onDraw(canvas);
 
-        canvas.drawRect(0, top, left, getHeight() - top, viewportPaint);
-        canvas.drawRect(0, 0, getWidth(), top, viewportPaint);
-        canvas.drawRect(getWidth() - left, top, getWidth(), getHeight() - top, viewportPaint);
-        canvas.drawRect(0, getHeight() - top, getWidth(), getHeight(), viewportPaint);
-    }
+		if (bitmap == null) {
+			return;
+		}
 
-    @Override
-    protected void onSizeChanged(int w, int h, int oldw, int oldh) {
-        super.onSizeChanged(w, h, oldw, oldh);
-        resetTouchManager();
-    }
+		drawBitmap(canvas);
+		drawOverlay(canvas);
+	}
 
-    /**
-     * Returns the native aspect ratio of the image.
-     *
-     * @return The native aspect ratio of the image.
-     */
-    public float getImageRatio() {
-        Bitmap bitmap = getImageBitmap();
-        return bitmap != null ? (float) bitmap.getWidth() / (float) bitmap.getHeight() : 0f;
-    }
+	private void drawBitmap(Canvas canvas) {
+		transform.reset();
+		touchManager.applyPositioningAndScale(transform);
 
-    /**
-     * Returns the aspect ratio of the viewport and crop rect.
-     *
-     * @return The current viewport aspect ratio.
-     */
-    public float getViewportRatio() {
-        return touchManager.getAspectRatio();
-    }
+		canvas.drawBitmap(bitmap, transform, bitmapPaint);
+	}
 
-    /**
-     * Sets the aspect ratio of the viewport and crop rect.  Defaults to
-     * the native aspect ratio if <code>ratio == 0</code>.
-     *
-     * @param ratio The new aspect ratio of the viewport.
-     */
-    public void setViewportRatio(float ratio) {
-        if (Float.compare(ratio, 0) == 0) {
-            ratio = getImageRatio();
-        }
-        touchManager.setAspectRatio(ratio);
-        resetTouchManager();
-        invalidate();
-    }
+	private void drawOverlay(Canvas canvas) {
+		final int viewportWidth = touchManager.getViewportWidth();
+		final int viewportHeight = touchManager.getViewportHeight();
 
-    @Override
-    public void setImageResource(@DrawableRes int resId) {
-        final Bitmap bitmap = resId > 0
-                ? BitmapFactory.decodeResource(getResources(), resId)
-                : null;
-        setImageBitmap(bitmap);
-    }
+		/**
+		 * Draws plain full size overlay first.
+		 */
+		overlayBitmap.eraseColor(Color.TRANSPARENT);
+		overlayCanvas.drawPaint(viewportPaint);
 
-    @Override
-    public void setImageDrawable(@Nullable Drawable drawable) {
-        final Bitmap bitmap;
-        if (drawable instanceof BitmapDrawable) {
-            BitmapDrawable bitmapDrawable = (BitmapDrawable) drawable;
-            bitmap = bitmapDrawable.getBitmap();
-        } else if (drawable != null) {
-            bitmap = Utils.asBitmap(drawable, getWidth(), getHeight());
-        } else {
-            bitmap = null;
-        }
+		if (overlayShape == OverlayShape.CIRCLE) {
+			/**
+			 * Overlay shape is CIRCLE.
+			 */
+			final float centerX = getWidth() / 2;
+			final float centerY = getHeight() / 2;
+			final float radius = Math.min(viewportWidth, viewportHeight) / 2;
 
-        setImageBitmap(bitmap);
-    }
+			overlayCanvas.drawCircle(centerX, centerY, radius, clearPaint);
 
-    @Override
-    public void setImageURI(@Nullable Uri uri) {
-        extensions().load(uri);
-    }
+		} else if (overlayShape == OverlayShape.SQUARE) {
+			/**
+			 * Overlay shape is SQUARE.
+			 */
+			final float centerX = getWidth() / 2;
+			final float centerY = getHeight() / 2;
+			final float side = Math.min(viewportWidth, viewportHeight) / 2;
 
-    @Override
-    public void setImageBitmap(@Nullable Bitmap bitmap) {
-        this.bitmap = bitmap;
-        resetTouchManager();
-        invalidate();
-    }
+			overlayCanvas.drawRect(centerX - side, centerY - side, centerX + side, centerY + side, clearPaint);
 
-    /**
-     * @return Current working Bitmap or <code>null</code> if none has been set yet.
-     */
-    @Nullable
-    public Bitmap getImageBitmap() {
-        return bitmap;
-    }
+		} else {
+			/**
+			 * Overlay shape is RECT.
+			 */
+			final float left = (getWidth() - viewportWidth) / 2;
+			final float top = (getHeight() - viewportHeight) / 2;
+			final float right = left + viewportWidth;
+			final float bottom = top + viewportHeight;
 
-    private void resetTouchManager() {
-        final boolean invalidBitmap = bitmap == null;
-        final int bitmapWidth = invalidBitmap ? 0 : bitmap.getWidth();
-        final int bitmapHeight = invalidBitmap ? 0 : bitmap.getHeight();
-        touchManager.resetFor(bitmapWidth, bitmapHeight, getWidth(), getHeight());
-    }
+			overlayCanvas.drawRect(left, top, right, bottom, clearPaint);
+		}
 
-    @Override
-    public boolean dispatchTouchEvent(MotionEvent event) {
-        super.dispatchTouchEvent(event);
+		canvas.drawBitmap(overlayBitmap, 0, 0, null);
+	}
 
-        touchManager.onEvent(event);
-        invalidate();
-        return true;
-    }
+	@Override
+	protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+		super.onSizeChanged(w, h, oldw, oldh);
 
-    /**
-     * Performs synchronous image cropping based on configuration.
-     *
-     * @return A {@link Bitmap} cropped based on viewport and user panning and zooming or <code>null</code> if no {@link Bitmap} has been
-     * provided.
-     */
-    @Nullable
-    public Bitmap crop() {
-        if (bitmap == null) {
-            return null;
-        }
+		if (overlayBitmap == null) {
+			overlayBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+			overlayCanvas.setBitmap(overlayBitmap);
+		}
 
-        final Bitmap src = bitmap;
-        final Bitmap.Config srcConfig = src.getConfig();
-        final Bitmap.Config config = srcConfig == null ? Bitmap.Config.ARGB_8888 : srcConfig;
-        final int viewportHeight = touchManager.getViewportHeight();
-        final int viewportWidth = touchManager.getViewportWidth();
+		resetTouchManager();
+	}
 
-        final Bitmap dst = Bitmap.createBitmap(viewportWidth, viewportHeight, config);
+	/**
+	 * Returns the native aspect ratio of the image.
+	 *
+	 * @return The native aspect ratio of the image.
+	 */
+	public float getImageRatio() {
+		Bitmap bitmap = getImageBitmap();
+		return bitmap != null ? (float) bitmap.getWidth() / (float) bitmap.getHeight() : 0f;
+	}
 
-        Canvas canvas = new Canvas(dst);
-        final int left = (getRight() - viewportWidth) / 2;
-        final int top = (getBottom() - viewportHeight) / 2;
-        canvas.translate(-left, -top);
+	/**
+	 * Returns the aspect ratio of the viewport and crop rect.
+	 *
+	 * @return The current viewport aspect ratio.
+	 */
+	public float getViewportRatio() {
+		return touchManager.getAspectRatio();
+	}
 
-        drawBitmap(canvas);
+	/**
+	 * Sets the aspect ratio of the viewport and crop rect.  Defaults to
+	 * the native aspect ratio if <code>ratio == 0</code>.
+	 *
+	 * @param ratio The new aspect ratio of the viewport.
+	 */
+	public void setViewportRatio(float ratio) {
+		if (Float.compare(ratio, 0) == 0) {
+			ratio = getImageRatio();
+		}
+		touchManager.setAspectRatio(ratio);
+		resetTouchManager();
+		invalidate();
+	}
 
-        return dst;
-    }
+	public void setOverlayShape(OverlayShape overlayShape) {
+		this.overlayShape = overlayShape;
+		invalidate();
+	}
 
-    /**
-     * Obtain current viewport width.
-     *
-     * @return Current viewport width.
-     * <p>Note: It might be 0 if layout pass has not been completed.</p>
-     */
-    public int getViewportWidth() {
-        return touchManager.getViewportWidth();
-    }
+	@Override
+	public void setImageResource(@DrawableRes int resId) {
+		final Bitmap bitmap = resId > 0
+				? BitmapFactory.decodeResource(getResources(), resId)
+				: null;
+		setImageBitmap(bitmap);
+	}
 
-    /**
-     * Obtain current viewport height.
-     *
-     * @return Current viewport height.
-     * <p>Note: It might be 0 if layout pass has not been completed.</p>
-     */
-    public int getViewportHeight() {
-        return touchManager.getViewportHeight();
-    }
+	@Override
+	public void setImageDrawable(@Nullable Drawable drawable) {
+		final Bitmap bitmap;
+		if (drawable instanceof BitmapDrawable) {
+			BitmapDrawable bitmapDrawable = (BitmapDrawable) drawable;
+			bitmap = bitmapDrawable.getBitmap();
+		} else if (drawable != null) {
+			bitmap = Utils.asBitmap(drawable, getWidth(), getHeight());
+		} else {
+			bitmap = null;
+		}
 
-    /**
-     * Offers common utility extensions.
-     *
-     * @return Extensions object used to perform chained calls.
-     */
-    public Extensions extensions() {
-        if (extensions == null) {
-            extensions = new Extensions(this);
-        }
-        return extensions;
-    }
+		setImageBitmap(bitmap);
+	}
 
-    /**
-     * Optional extensions to perform common actions involving a {@link CropView}
-     */
-    public static class Extensions {
+	@Override
+	public void setImageURI(@Nullable Uri uri) {
+		extensions().load(uri);
+	}
 
-        private final CropView cropView;
+	@Override
+	public void setImageBitmap(@Nullable Bitmap bitmap) {
+		this.bitmap = bitmap;
+		resetTouchManager();
+		invalidate();
+	}
 
-        Extensions(CropView cropView) {
-            this.cropView = cropView;
-        }
+	/**
+	 * @return Current working Bitmap or <code>null</code> if none has been set yet.
+	 */
+	@Nullable
+	public Bitmap getImageBitmap() {
+		return bitmap;
+	}
 
-        /**
-         * Load a {@link Bitmap} using an automatically resolved {@link BitmapLoader} which will attempt to scale image to fill view.
-         *
-         * @param model Model used by {@link BitmapLoader} to load desired {@link Bitmap}
-         * @see PicassoBitmapLoader
-         * @see GlideBitmapLoader
-         */
-        public void load(@Nullable Object model) {
-            new LoadRequest(cropView)
-                    .load(model);
-        }
+	private void resetTouchManager() {
+		final boolean invalidBitmap = bitmap == null;
+		final int bitmapWidth = invalidBitmap ? 0 : bitmap.getWidth();
+		final int bitmapHeight = invalidBitmap ? 0 : bitmap.getHeight();
+		touchManager.resetFor(bitmapWidth, bitmapHeight, getWidth(), getHeight());
+	}
 
-        /**
-         * Load a {@link Bitmap} using given {@link BitmapLoader}, you must call {@link LoadRequest#load(Object)} afterwards.
-         *
-         * @param bitmapLoader {@link BitmapLoader} used to load desired {@link Bitmap}
-         * @see PicassoBitmapLoader
-         * @see GlideBitmapLoader
-         */
-        public LoadRequest using(@Nullable BitmapLoader bitmapLoader) {
-            return new LoadRequest(cropView).using(bitmapLoader);
-        }
+	@Override
+	public boolean dispatchTouchEvent(MotionEvent event) {
+		super.dispatchTouchEvent(event);
 
-        /**
-         * Perform an asynchronous crop request.
-         *
-         * @return {@link CropRequest} used to chain a configure cropping request, you must call either one of:
-         * <ul>
-         * <li>{@link CropRequest#into(File)}</li>
-         * <li>{@link CropRequest#into(OutputStream, boolean)}</li>
-         * </ul>
-         */
-        public CropRequest crop() {
-            return new CropRequest(cropView);
-        }
+		touchManager.onEvent(event);
+		invalidate();
+		return true;
+	}
 
-        /**
-         * Perform a pick image request using {@link Activity#startActivityForResult(Intent, int)}.
-         */
-        public void pickUsing(@NonNull Activity activity, int requestCode) {
-            CropViewExtensions.pickUsing(activity, requestCode);
-        }
-    }
+	/**
+	 * Performs synchronous image cropping based on configuration.
+	 *
+	 * @return A {@link Bitmap} cropped based on viewport and user panning and zooming or <code>null</code> if no {@link Bitmap} has been
+	 * provided.
+	 */
+	@Nullable
+	public Bitmap crop() {
+		if (bitmap == null) {
+			return null;
+		}
+
+		final Bitmap src = bitmap;
+		final Bitmap.Config srcConfig = src.getConfig();
+		final Bitmap.Config config = srcConfig == null ? Bitmap.Config.ARGB_8888 : srcConfig;
+
+		final int viewportHeight;
+		final int viewportWidth;
+
+		if (overlayShape == OverlayShape.SQUARE || overlayShape == OverlayShape.CIRCLE) {
+			/**
+			 * Square crop.
+			 */
+			viewportWidth = Math.min(touchManager.getViewportWidth(), touchManager.getViewportHeight());
+			viewportHeight = viewportWidth;
+		} else {
+			/**
+			 * Default crop.
+			 */
+			viewportWidth = touchManager.getViewportWidth();
+			viewportHeight = touchManager.getViewportHeight();
+		}
+
+		final Bitmap dst = Bitmap.createBitmap(viewportWidth, viewportHeight, config);
+
+		Canvas canvas = new Canvas(dst);
+		final int left = (getRight() - viewportWidth) / 2;
+		final int top = (getBottom() - viewportHeight) / 2;
+		canvas.translate(-left, -top);
+
+		drawBitmap(canvas);
+
+		return dst;
+	}
+
+	/**
+	 * Obtain current viewport width.
+	 *
+	 * @return Current viewport width.
+	 * <p>Note: It might be 0 if layout pass has not been completed.</p>
+	 */
+	public int getViewportWidth() {
+		return touchManager.getViewportWidth();
+	}
+
+	/**
+	 * Obtain current viewport height.
+	 *
+	 * @return Current viewport height.
+	 * <p>Note: It might be 0 if layout pass has not been completed.</p>
+	 */
+	public int getViewportHeight() {
+		return touchManager.getViewportHeight();
+	}
+
+	/**
+	 * Offers common utility extensions.
+	 *
+	 * @return Extensions object used to perform chained calls.
+	 */
+	public Extensions extensions() {
+		if (extensions == null) {
+			extensions = new Extensions(this);
+		}
+		return extensions;
+	}
+
+	/**
+	 * Optional extensions to perform common actions involving a {@link CropView}
+	 */
+	public static class Extensions {
+
+		private final CropView cropView;
+
+		Extensions(CropView cropView) {
+			this.cropView = cropView;
+		}
+
+		/**
+		 * Load a {@link Bitmap} using an automatically resolved {@link BitmapLoader} which will attempt to scale image to fill view.
+		 *
+		 * @param model Model used by {@link BitmapLoader} to load desired {@link Bitmap}
+		 * @see PicassoBitmapLoader
+		 * @see GlideBitmapLoader
+		 */
+		public void load(@Nullable Object model) {
+			new LoadRequest(cropView)
+					.load(model);
+		}
+
+		/**
+		 * Load a {@link Bitmap} using given {@link BitmapLoader}, you must call {@link LoadRequest#load(Object)} afterwards.
+		 *
+		 * @param bitmapLoader {@link BitmapLoader} used to load desired {@link Bitmap}
+		 * @see PicassoBitmapLoader
+		 * @see GlideBitmapLoader
+		 */
+		public LoadRequest using(@Nullable BitmapLoader bitmapLoader) {
+			return new LoadRequest(cropView).using(bitmapLoader);
+		}
+
+		/**
+		 * Perform an asynchronous crop request.
+		 *
+		 * @return {@link CropRequest} used to chain a configure cropping request, you must call either one of:
+		 * <ul>
+		 * <li>{@link CropRequest#into(File)}</li>
+		 * <li>{@link CropRequest#into(OutputStream, boolean)}</li>
+		 * </ul>
+		 */
+		public CropRequest crop() {
+			return new CropRequest(cropView);
+		}
+
+		/**
+		 * Perform a pick image request using {@link Activity#startActivityForResult(Intent, int)}.
+		 */
+		public void pickUsing(@NonNull Activity activity, int requestCode) {
+			CropViewExtensions.pickUsing(activity, requestCode);
+		}
+	}
 }
