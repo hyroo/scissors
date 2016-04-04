@@ -70,6 +70,18 @@ public class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
 
         ButterKnife.bind(this);
+
+        /**
+         * Set viewport ratio.
+         */
+        cropView.setViewportRatio(0.5f);
+
+        /**
+         * Set shape of overlay.
+         *
+         * Possible shapes: CIRCLE, SQUARE, RECT (default value)
+         */
+        cropView.setOverlayShape(CropView.OverlayShape.CIRCLE);
     }
 
     @Override
