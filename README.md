@@ -55,7 +55,11 @@ Download
 --------
 
 ```groovy
-compile 'com.lyft:scissors:1.0.3'
+repositories {
+    maven { url "https://jitpack.io" }
+}
+
+compile 'com.github.ludriv:scissors:1.0.3.1'
 ```
 
 Snapshots of development version are available in [Sonatype's `snapshots` repository][snap].
